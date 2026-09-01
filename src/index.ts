@@ -63,6 +63,11 @@ async function auditLog(username: string, action: string, resourceType: string, 
   }
 }
 
+// ================= HEALTH CHECKS =================
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // ================= AUTH ROUTES =================
 app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { username, password } = req.body;

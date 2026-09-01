@@ -110,15 +110,15 @@ spec:
           value: "k8s-platform-secret-jwt-key-2026"
         readinessProbe:
           httpGet:
-            path: /api/auth/me
+            path: /api/health
             port: 8080
-          initialDelaySeconds: 10
+          initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /api/auth/me
+            path: /api/health
             port: 8080
-          initialDelaySeconds: 30
+          initialDelaySeconds: 15
           periodSeconds: 30
         resources:
           requests:
