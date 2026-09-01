@@ -84,9 +84,11 @@ spec:
       labels:
         app: rust-test2
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: dashboard
-        image: hub.steedgrace.com/abm/rust-test2:latest
+        image: ghcr.io/fys05/rust-test2:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

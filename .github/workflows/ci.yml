@@ -11,6 +11,10 @@ concurrency:
   group: production-abm-production-rust-test2
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   # Stage 1: Lint & Code Quality Check
   lint:
@@ -53,7 +57,7 @@ jobs:
       - name: Run Unit & API Tests
         run: npm test || echo "All unit tests passed"
 
-  # Stage 3: Build & Push Container Image
+  # Stage 3: Build & Push Container Image to GitHub Packages (ghcr.io)
   build-and-push:
     name: 3. Build & Push Image
     needs: [lint, test]
@@ -62,21 +66,29 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup hosts for private registry
-        run: |
-          sudo sh -c 'echo "115.231.236.252 hub.steedgrace.com" >> /etc/hosts'
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Login to Private Registry
+      - name: Build and Push Docker Image to GHCR
         run: |
-          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login hub.steedgrace.com -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
-
-      - name: Build and Push Docker Image
-        run: |
-          docker build -t hub.steedgrace.com/abm/rust-test2:latest -t hub.steedgrace.com/abm/rust-test2:${{ github.sha }} .
+          docker build -t ghcr.io/fys05/rust-test2:latest -t ghcr.io/fys05/rust-test2:${{ github.sha }} .
           echo "Pushing latest tag..."
-          docker push hub.steedgrace.com/abm/rust-test2:latest
+          docker push ghcr.io/fys05/rust-test2:latest
           echo "Pushing commit sha tag..."
-          docker push hub.steedgrace.com/abm/rust-test2:${{ github.sha }}
+          docker push ghcr.io/fys05/rust-test2:${{ github.sha }}
+
+      - name: Ensure Package Visibility is Public
+        run: |
+          echo "Updating package visibility to public via GitHub API..."
+          curl -s -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user/packages/container/rust-test2/visibility \
+            -d '{"visibility":"public"}' || true
 
   # Stage 4: Deploy to Kubernetes & Smoke Test
   deploy-to-k8s:
@@ -86,10 +98,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup hosts for private registry & K8s cluster
-        run: |
-          sudo sh -c 'echo "115.231.236.252 hub.steedgrace.com" >> /etc/hosts'
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -102,6 +110,15 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
+      - name: Create or Update ghcr-secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=fys05 \
+            --docker-password=${{ secrets.GH_PAT }} \
+            -n abm-production \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Preflight verification
         run: |
           kubectl cluster-info
@@ -109,7 +126,7 @@ jobs:
 
       - name: Update Deployment Image Tag
         run: |
-          sed -i "s|hub.steedgrace.com/abm/rust-test2:latest|hub.steedgrace.com/abm/rust-test2:${{ github.sha }}|g" k8s/deploy.yaml
+          sed -i "s|ghcr.io/fys05/rust-test2:latest|ghcr.io/fys05/rust-test2:${{ github.sha }}|g" k8s/deploy.yaml
 
       - name: Deploy to Kubernetes
         run: |
