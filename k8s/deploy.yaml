@@ -86,7 +86,7 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: hub.steedgrace.com/rust-test2/dashboard:latest
+        image: hub.steedgrace.com/abm/rust-test2:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
