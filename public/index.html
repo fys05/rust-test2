@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KubeManage - K8s集群管理平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #0f172a; color: #f8fafc; }
+    .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .sidebar-item { transition: all 0.2s ease; }
+    .sidebar-item:hover, .sidebar-item.active { background: rgba(59, 130, 246, 0.15); border-right: 3px solid #3b82f6; color: #60a5fa; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col">
+
+  <!-- LOGIN MODAL -->
+  <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md">
+    <div class="glass-panel p-8 rounded-2xl w-full max-w-md shadow-2xl border border-slate-700">
+      <div class="flex items-center justify-center space-x-3 mb-6">
+        <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+          <i class="fa-solid fa-dharmachakra text-2xl text-white animate-spin-slow"></i>
+        </div>
+        <h1 class="text-2xl font-bold tracking-wide text-white">KubeManage</h1>
+      </div>
+      <p class="text-sm text-slate-400 text-center mb-6">企业级 Kubernetes 集群多租户管理平台</p>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">用户名</label>
+          <input type="text" id="login-username" value="admin" class="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">密码</label>
+          <input type="password" id="login-password" value="admin123" class="w-full px-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
+        </div>
+        <div id="login-error" class="text-red-400 text-xs hidden"></div>
+        <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 font-medium rounded-lg shadow-lg shadow-blue-600/30 transition duration-150">登录管理平台</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOP HEADER -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/60 px-6 flex items-center justify-between shrink-0">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-dharmachakra text-blue-500 text-2xl"></i>
+        <span class="text-lg font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent">KubeManage</span>
+      </div>
+      <div class="h-5 w-[1px] bg-slate-800"></div>
+      <!-- Cluster Selector -->
+      <div class="flex items-center space-x-2 bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
+        <i class="fa-solid fa-server text-xs text-emerald-400"></i>
+        <select id="cluster-selector" class="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer">
+          <option value="default">默认集群 (In-Cluster)</option>
+        </select>
+      </div>
+      <!-- Namespace Selector -->
+      <div class="flex items-center space-x-2 bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
+        <i class="fa-solid fa-layer-group text-xs text-blue-400"></i>
+        <select id="ns-selector" class="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer">
+          <option value="">全部命名空间 (All)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-4">
+      <button onclick="openApplyYamlModal()" class="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-xs font-semibold rounded-lg shadow-md flex items-center space-x-2 transition">
+        <i class="fa-solid fa-code"></i>
+        <span>应用 YAML</span>
+      </button>
+      <button onclick="refreshCurrentView()" class="p-2 text-slate-400 hover:text-white transition" title="刷新数据">
+        <i class="fa-solid fa-arrows-rotate"></i>
+      </button>
+      <div class="flex items-center space-x-2 border-l border-slate-800 pl-4">
+        <div class="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-sm text-blue-400" id="user-avatar">A</div>
+        <span class="text-sm font-medium text-slate-300" id="user-display">Admin</span>
+        <button onclick="logout()" class="text-slate-400 hover:text-red-400 ml-2" title="退出登录">
+          <i class="fa-solid fa-right-from-bracket"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WRAPPER -->
+  <div class="flex-1 flex overflow-hidden">
+    <!-- SIDEBAR -->
+    <aside class="w-64 border-r border-slate-800 bg-slate-900/40 flex flex-col justify-between shrink-0 p-3">
+      <nav class="space-y-1">
+        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-3 py-2">概览</div>
+        <button onclick="navigate('overview')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300 active" data-nav="overview">
+          <i class="fa-solid fa-chart-pie w-5"></i>
+          <span>集群概览</span>
+        </button>
+        <button onclick="navigate('nodes')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="nodes">
+          <i class="fa-solid fa-server w-5"></i>
+          <span>节点管理 (Nodes)</span>
+        </button>
+
+        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-3 py-2 mt-4">工作负载 (Workloads)</div>
+        <button onclick="navigate('deployments')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="deployments">
+          <i class="fa-solid fa-cubes w-5"></i>
+          <span>无状态 (Deployments)</span>
+        </button>
+        <button onclick="navigate('statefulsets')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="statefulsets">
+          <i class="fa-solid fa-database w-5"></i>
+          <span>有状态 (StatefulSets)</span>
+        </button>
+        <button onclick="navigate('pods')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="pods">
+          <i class="fa-solid fa-cube w-5"></i>
+          <span>容器组 (Pods)</span>
+        </button>
+
+        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-3 py-2 mt-4">网络与存储</div>
+        <button onclick="navigate('services')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="services">
+          <i class="fa-solid fa-network-wired w-5"></i>
+          <span>服务 (Services)</span>
+        </button>
+        <button onclick="navigate('ingresses')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="ingresses">
+          <i class="fa-solid fa-route w-5"></i>
+          <span>路由 (Ingresses)</span>
+        </button>
+        <button onclick="navigate('configmaps')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="configmaps">
+          <i class="fa-solid fa-sliders w-5"></i>
+          <span>配置项 (ConfigMaps)</span>
+        </button>
+        <button onclick="navigate('secrets')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="secrets">
+          <i class="fa-solid fa-key w-5"></i>
+          <span>密文 (Secrets)</span>
+        </button>
+
+        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-3 py-2 mt-4">系统与设置</div>
+        <button onclick="navigate('clusters')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="clusters">
+          <i class="fa-solid fa-circle-nodes w-5"></i>
+          <span>多集群绑定</span>
+        </button>
+        <button onclick="navigate('audit')" class="sidebar-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm text-slate-300" data-nav="audit">
+          <i class="fa-solid fa-clock-rotate-left w-5"></i>
+          <span>操作审计日志</span>
+        </button>
+      </nav>
+
+      <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-800 text-xs text-slate-400">
+        <div class="flex items-center justify-between mb-1 font-medium text-slate-300">
+          <span>KubeManage v1.0</span>
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        </div>
+        <p>Connected to K8s v1.29</p>
+      </div>
+    </aside>
+
+    <!-- CONTENT AREA -->
+    <main class="flex-1 overflow-y-auto p-6 bg-slate-950/40">
+      
+      <!-- VIEW: OVERVIEW -->
+      <section id="view-overview" class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>节点 Nodes</span>
+              <i class="fa-solid fa-server text-blue-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-nodes">0</div>
+            <div class="text-xs text-emerald-400 mt-1"><i class="fa-solid fa-circle-check"></i> 全部健康</div>
+          </div>
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>命名空间</span>
+              <i class="fa-solid fa-layer-group text-purple-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-namespaces">0</div>
+            <div class="text-xs text-slate-400 mt-1">隔离资源池</div>
+          </div>
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>无状态 Deploy</span>
+              <i class="fa-solid fa-cubes text-emerald-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-deployments">0</div>
+            <div class="text-xs text-slate-400 mt-1">应用实例管理</div>
+          </div>
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>容器组 Pods</span>
+              <i class="fa-solid fa-cube text-amber-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-pods">0</div>
+            <div class="text-xs text-emerald-400 mt-1" id="stat-pods-status">0 运行中</div>
+          </div>
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>服务 Services</span>
+              <i class="fa-solid fa-network-wired text-cyan-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-services">0</div>
+            <div class="text-xs text-slate-400 mt-1">四层负载均衡</div>
+          </div>
+          <div class="glass-panel p-4 rounded-xl">
+            <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase">
+              <span>网关 Ingresses</span>
+              <i class="fa-solid fa-route text-rose-400"></i>
+            </div>
+            <div class="text-3xl font-bold mt-2 text-white" id="stat-ingresses">0</div>
+            <div class="text-xs text-slate-400 mt-1">七层域名路由</div>
+          </div>
+        </div>
+
+        <!-- Quick Launch & Overview Tables -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="glass-panel p-5 rounded-2xl">
+            <h3 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
+              <i class="fa-solid fa-server text-blue-400"></i>
+              <span>集群节点概况</span>
+            </h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm text-slate-300">
+                <thead class="text-xs text-slate-500 uppercase border-b border-slate-800 bg-slate-900/30">
+                  <tr>
+                    <th class="py-2.5 px-3">节点名称</th>
+                    <th class="py-2.5 px-3">状态</th>
+                    <th class="py-2.5 px-3">角色</th>
+                    <th class="py-2.5 px-3">K8s 版本</th>
+                  </tr>
+                </thead>
+                <tbody id="overview-nodes-body" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="glass-panel p-5 rounded-2xl">
+            <h3 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
+              <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
+              <span>最近操作审计日志</span>
+            </h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm text-slate-300">
+                <thead class="text-xs text-slate-500 uppercase border-b border-slate-800 bg-slate-900/30">
+                  <tr>
+                    <th class="py-2.5 px-3">操作人</th>
+                    <th class="py-2.5 px-3">动作</th>
+                    <th class="py-2.5 px-3">资源</th>
+                    <th class="py-2.5 px-3">时间</th>
+                  </tr>
+                </thead>
+                <tbody id="overview-audit-body" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: GENERIC DATA TABLE (Used for Deployments, Pods, Services, etc) -->
+      <section id="view-datatable" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-white tracking-tight" id="datatable-title">Deployments</h2>
+            <p class="text-xs text-slate-400 mt-1" id="datatable-desc">管理集群中的无状态工作负载副本</p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <input type="text" id="datatable-search" placeholder="搜索资源名称..." class="px-3.5 py-1.5 bg-slate-800/80 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 transition">
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-2xl overflow-hidden shadow-xl">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-300">
+              <thead class="text-xs text-slate-400 uppercase border-b border-slate-800 bg-slate-900/50" id="datatable-head"></thead>
+              <tbody id="datatable-body" class="divide-y divide-slate-800/60"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: CLUSTERS -->
+      <section id="view-clusters" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-white tracking-tight">多集群配置</h2>
+            <p class="text-xs text-slate-400 mt-1">管理并绑定多个 Kubernetes 集群 kubeconfig</p>
+          </div>
+          <button onclick="openAddClusterModal()" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-semibold rounded-lg shadow flex items-center space-x-1.5 transition">
+            <i class="fa-solid fa-plus"></i>
+            <span>添加集群</span>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="clusters-grid"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- LOGS & TERMINAL MODAL -->
+  <div id="terminal-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+    <div class="glass-panel rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-700">
+      <div class="h-12 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-3">
+          <div class="flex space-x-1.5">
+            <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+            <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+            <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+          </div>
+          <span class="text-sm font-semibold text-slate-200" id="terminal-modal-title">Web Terminal</span>
+        </div>
+        <button onclick="closeTerminalModal()" class="text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+      <div class="flex-1 bg-black p-2 overflow-hidden" id="terminal-container"></div>
+    </div>
+  </div>
+
+  <!-- YAML APPLY MODAL -->
+  <div id="yaml-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+    <div class="glass-panel rounded-2xl w-full max-w-4xl h-[80vh] flex flex-col shadow-2xl overflow-hidden border border-slate-700">
+      <div class="h-12 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between shrink-0">
+        <span class="text-sm font-semibold text-slate-200">应用/创建 K8s 资源 (YAML)</span>
+        <button onclick="closeYamlModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div class="flex-1 p-4 bg-slate-950 flex flex-col">
+        <textarea id="yaml-input" class="flex-1 w-full p-4 bg-slate-900/90 font-mono text-sm text-emerald-400 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 resize-none" placeholder="apiVersion: apps/v1&#10;kind: Deployment&#10;metadata:&#10;  name: my-app&#10;  namespace: default..."></textarea>
+      </div>
+      <div class="h-14 border-t border-slate-800 bg-slate-900 px-4 flex items-center justify-end space-x-3 shrink-0">
+        <button onclick="closeYamlModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg transition">取消</button>
+        <button onclick="submitYaml()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-semibold rounded-lg transition">提交并应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD CLUSTER MODAL -->
+  <div id="add-cluster-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+    <div class="glass-panel rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl overflow-hidden border border-slate-700">
+      <div class="h-12 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between shrink-0">
+        <span class="text-sm font-semibold text-slate-200">绑定新 Kubernetes 集群</span>
+        <button onclick="closeAddClusterModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form id="add-cluster-form" class="p-6 space-y-4 bg-slate-950">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">集群名称</label>
+          <input type="text" id="cluster-name-input" required class="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">集群描述</label>
+          <input type="text" id="cluster-desc-input" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Kubeconfig (YAML)</label>
+          <textarea id="cluster-kubeconfig-input" rows="8" required class="w-full p-3.5 bg-slate-900 font-mono text-xs text-emerald-400 border border-slate-800 rounded-lg focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+        <div class="flex items-center space-x-2">
+          <input type="checkbox" id="cluster-default-input" class="rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0">
+          <label for="cluster-default-input" class="text-xs text-slate-300">设为默认集群</label>
+        </div>
+        <div class="flex justify-end space-x-3 pt-2">
+          <button type="button" onclick="closeAddClusterModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg transition">取消</button>
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-semibold rounded-lg transition">保存集群</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

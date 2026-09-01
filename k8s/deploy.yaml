@@ -1,0 +1,181 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rust-test2-postgres
+  namespace: abm-production
+  labels:
+    app: rust-test2-postgres
+spec:
+  serviceName: rust-test2-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rust-test2-postgres
+  template:
+    metadata:
+      labels:
+        app: rust-test2-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_USER
+          value: "k8sadmin"
+        - name: POSTGRES_PASSWORD
+          value: "K8sManager2026!"
+        - name: POSTGRES_DB
+          value: "k8s_manager"
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+  volumeClaimTemplates:
+  - metadata:
+      name: pgdata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "nfs142"
+      resources:
+        requests:
+          storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rust-test2-postgres
+  namespace: abm-production
+  labels:
+    app: rust-test2-postgres
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  selector:
+    app: rust-test2-postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rust-test2
+  namespace: abm-production
+  labels:
+    app: rust-test2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rust-test2
+  template:
+    metadata:
+      labels:
+        app: rust-test2
+    spec:
+      containers:
+      - name: dashboard
+        image: hub.steedgrace.com/abm/rust-test2:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: DB_HOST
+          value: "rust-test2-postgres"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: "k8sadmin"
+        - name: DB_PASSWORD
+          value: "K8sManager2026!"
+        - name: DB_NAME
+          value: "k8s_manager"
+        - name: JWT_SECRET
+          value: "k8s-platform-secret-jwt-key-2026"
+        readinessProbe:
+          httpGet:
+            path: /api/auth/me
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rust-test2
+  namespace: abm-production
+  labels:
+    app: rust-test2
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: rust-test2
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rust-test2
+  namespace: abm-production
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  rules:
+  - host: omp-rust-test2.steedgrace.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rust-test2
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - omp-rust-test2.steedgrace.com
+    secretName: steedgrace-com-tls-secret
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rust-test2-http
+  namespace: abm-production
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: abm-production-redirect-https@kubernetescrd
+spec:
+  rules:
+  - host: omp-rust-test2.steedgrace.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rust-test2
+            port:
+              number: 8080
