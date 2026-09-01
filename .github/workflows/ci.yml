@@ -70,10 +70,12 @@ jobs:
         run: |
           echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login hub.steedgrace.com -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
 
-      - name: Build and Push Docker Image via CLI
+      - name: Build and Push Docker Image
         run: |
           docker build -t hub.steedgrace.com/abm/rust-test2:latest -t hub.steedgrace.com/abm/rust-test2:${{ github.sha }} .
+          echo "Pushing latest tag..."
           docker push hub.steedgrace.com/abm/rust-test2:latest
+          echo "Pushing commit sha tag..."
           docker push hub.steedgrace.com/abm/rust-test2:${{ github.sha }}
 
   # Stage 4: Deploy to Kubernetes & Smoke Test
