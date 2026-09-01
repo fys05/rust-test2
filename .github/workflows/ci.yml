@@ -7,6 +7,10 @@ on:
       - master
   workflow_dispatch:
 
+concurrency:
+  group: production-abm-production-rust-test2
+  cancel-in-progress: false
+
 jobs:
   build-and-push:
     name: Build & Push Image
@@ -36,8 +40,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            hub.steedgrace.com/abm/rust-test2:latest
-            hub.steedgrace.com/abm/rust-test2:${{ github.sha }}
+            hub.steedgrace.com/rust-test2/dashboard:latest
+            hub.steedgrace.com/rust-test2/dashboard:${{ github.sha }}
 
   deploy-to-k8s:
     name: Deploy to Kubernetes Cluster
@@ -62,9 +66,14 @@ jobs:
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
+      - name: Preflight verification
+        run: |
+          kubectl cluster-info
+          kubectl get ns abm-production
+
       - name: Update Deployment Image Tag
         run: |
-          sed -i "s|hub.steedgrace.com/abm/rust-test2:latest|hub.steedgrace.com/abm/rust-test2:${{ github.sha }}|g" k8s/deploy.yaml
+          sed -i "s|hub.steedgrace.com/rust-test2/dashboard:latest|hub.steedgrace.com/rust-test2/dashboard:${{ github.sha }}|g" k8s/deploy.yaml
 
       - name: Deploy to Kubernetes
         run: |
@@ -76,3 +85,15 @@ jobs:
           kubectl rollout status deployment/rust-test2 -n abm-production --timeout=180s
           kubectl get pods,svc,ingress -n abm-production -l app=rust-test2
           kubectl get pods,svc -n abm-production -l app=rust-test2-postgres
+
+      - name: Post-deploy smoke test
+        run: |
+          echo "Verifying service readiness..."
+          sleep 5
+          READY=$(kubectl get pods -l app=rust-test2 -n abm-production --no-headers | awk '{print $2}' | grep -c '1/1' || true)
+          if [ "$READY" -eq 0 ]; then
+            echo "ERROR: Dashboard pod not ready"
+            kubectl describe pods -l app=rust-test2 -n abm-production
+            exit 1
+          fi
+          echo "Dashboard pod is ready!"

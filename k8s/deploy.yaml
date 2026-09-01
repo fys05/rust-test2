@@ -86,7 +86,7 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: hub.steedgrace.com/abm/rust-test2:latest
+        image: hub.steedgrace.com/rust-test2/dashboard:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -142,6 +142,7 @@ metadata:
   name: rust-test2
   namespace: abm-production
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   rules:
@@ -166,6 +167,7 @@ metadata:
   name: rust-test2-http
   namespace: abm-production
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
     traefik.ingress.kubernetes.io/router.middlewares: abm-production-redirect-https@kubernetescrd
 spec:
   rules:
