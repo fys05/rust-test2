@@ -134,8 +134,8 @@ jobs:
 
       - name: Verify Rollout Status
         run: |
-          kubectl rollout status statefulset/rust-test2-postgres -n abm-production --timeout=180s
-          kubectl rollout status deployment/rust-test2 -n abm-production --timeout=180s
+          kubectl rollout status statefulset/rust-test2-postgres -n abm-production --timeout=300s
+          kubectl rollout status deployment/rust-test2 -n abm-production --timeout=300s
           kubectl get pods,svc,ingress -n abm-production -l app=rust-test2
           kubectl get pods,svc -n abm-production -l app=rust-test2-postgres
 
